@@ -37,7 +37,7 @@ final class GpuMotes {
     static final int BALLISTIC = 0, SLIDE = 1, PULSE = 2, BURST = 3, FLOW = 4;
     static final int FADE = 1, ANIMATED = 4;
     static final int SHRINK = 0, PULSE_SIZE = 1, CONSTANT = 2;
-    static final float CULL = 72;
+    static final float CULL = (float) MoteParticles.SPAWN_DISTANCE + 8;
     private static final int RECORD_BYTES = 128;
     private static final int VERTEX_BYTES = 36;
     private static final int FULL_BRIGHT = 240;
@@ -510,6 +510,8 @@ final class GpuMotes {
         RenderSystem.depthMask(false);
         RenderSystem.disableCull();
         if (throughWalls) RenderSystem.disableDepthTest();
+        else RenderSystem.enableDepthTest();
+        RenderSystem.depthFunc(GL11.GL_LEQUAL);
         var shader = RenderSystem.getShader();
         if (shader != null) {
             uniforms(shader);

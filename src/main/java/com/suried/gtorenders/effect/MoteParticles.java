@@ -12,6 +12,7 @@ public final class MoteParticles {
 
     public static final int SHRINK = GpuMotes.SHRINK, PULSE = GpuMotes.PULSE_SIZE, CONSTANT = GpuMotes.CONSTANT;
     public static final int FADE = 1, THROUGH_WALLS = 2;
+    public static final double SPAWN_DISTANCE = 64;
 
     private MoteParticles() {}
 
