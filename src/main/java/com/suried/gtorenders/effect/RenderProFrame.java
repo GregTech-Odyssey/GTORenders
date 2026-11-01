@@ -144,6 +144,7 @@ public final class RenderProFrame {
     }
 
     private static void flushMotes(RenderLevelStageEvent event) {
+        RenderProTypes.ensureTextures();
         var modelView = RenderSystem.getModelViewStack();
         modelView.pushPose();
         modelView.mulPoseMatrix(event.getPoseStack().last().pose());

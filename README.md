@@ -17,6 +17,7 @@ shader so shader packs keep working.
 | Link | `LinkEffects.flow / pulse / beam` with `FlowStyle`, `PulseStyle`, `BeamStyle` | motes between two points: a continuous stream, a single pulse with a fading trail, or a short-lived beam |
 | Burst | `BurstEffects.burst` with `BurstStyle` | motes spreading out from, or hovering around, a point |
 | Emitter | `ParticleEmitters.burst / emitter` | vanilla particles, one-shot or for a number of ticks |
+| Body effect | `BodyEffects.register / draw` with `PixelSheet` | pixel-glow sheets worn on player body parts (wings, auras), with an optional per-draw tint for dimming: placed with the model part's real pose while the player renders and drawn after particles (every entity batch flushed) from static geometry |
 | Sprite box | `SpriteQuads.box / face` | axis-aligned sprite faces in pixel units, tiled on the 16-pixel grid (liquid surfaces, panels) |
 
 `MoteLook` picks how a mote looks: the GTORenders pixel glow with a bright core (`MoteLook.GLOW`), or a mod's own particle sprite from the particle atlas
