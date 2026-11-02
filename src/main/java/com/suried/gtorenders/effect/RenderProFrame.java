@@ -156,6 +156,10 @@ public final class RenderProFrame {
 
     private static void flush(RenderLevelStageEvent event) {
         if (ringCount == 0) return;
+        if (!RingInstancer.available()) {
+            ringCount = 0;
+            return;
+        }
         RenderProTypes.ensureTextures();
         var modelView = RenderSystem.getModelViewStack();
         modelView.pushPose();

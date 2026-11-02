@@ -5,6 +5,7 @@ GTORenders 是 GregTech Odyssey 系列模组（GTOCore、GTM fork、新生魔艺
 - 包名 `com.suried.gtorenders`，模组 ID `gtorenders`，Maven 坐标 `com.gto:gtorenders-forge-1.20.1:<版本>`（gtopublish 插件按 `archivesName` 加 `-forge-1.20.1` 生成）。
 - 只放与具体玩法无关的通用渲染代码，不得依赖任何其它模组；着色器与生成贴图放在 `gtorenders` 命名空间下。
 - 渲染器分七类：环（`RenderProFrame.ring`）、光点粒子（`MoteParticles`，代替模组自己的简单粒子，由粒子 Provider 调用后返回 null）、连线（`LinkEffects`）、爆散（`BurstEffects`）、原版粒子发射器（`ParticleEmitters`）、贴图盒（`SpriteQuads`）、身体挂件（`BodyEffects` + `PixelSheet`：玩家模型上的像素光片，库统一挂渲染层，记下身体部件实际姿态，到粒子阶段之后（所有实体批次已画完）再绘制，遮挡由深度决定，几何体只上传一次）。光点一律在 GPU 上计算（`GpuMotes`：出生时写一次参数，变换反馈着色器每帧展开成四边形，再交给原版 eyes/粒子着色器绘制以兼容光影包），外观由 `MoteLook` 决定：GTO 自己的效果用像素光点，替代其他模组的粒子时一律用该模组原贴图（`MoteSprite.of(spriteSet)`），保留原模组特色。新需求先套进这七类；样式用参数记录（`*Style`），由使用方定义常量，库里不放具体玩法的样式。
+- 光影包（Iris/Oculus）兼容：自定义 GL 绘制一律用 `QuadOutput`（按属性名绑定、兼容 `iris_` 前缀，统一设 uniform 与绘制），不要用原版 `VertexBuffer.drawWithShader`。光影包会接管混合与阶段，所以：GTO 像素光点在光影包下改走原版粒子着色器（光影包按粒子前向渲染，天空前不会被覆盖），颜色不预乘、用光晕贴图；身体挂件在光影包下由渲染层直接写入实体缓冲（写深度的 eyes 类型 `bodyGlows/bodyCores`），光晕不重叠以免叠加过曝。新效果要在 Complementary 与 Photon 下各截图实测（探针 `gtodyssey/tools/probe-templates/shader-compat/`）。
 - 粒子距离统一由 `MoteParticles.SPAWN_DISTANCE`（64 格）决定：`mixin/client/LevelRendererMixin` 把原版非强制粒子的 32 格生成距离放宽到它，光点在 GPU 上的剔除距离比它多 8 格；使用方不要再写死别的距离。
 - 渲染类全部标 `@OnlyIn(Dist.CLIENT)`；模组主类和服务端会加载的类不得引用客户端类，专用服必须能正常启动。
 - 性能：每帧不分配对象，绘制命令复用对象池，批量提交给 GPU；OpenGL 能力不足时整体关闭并只记一次日志，不得崩溃。

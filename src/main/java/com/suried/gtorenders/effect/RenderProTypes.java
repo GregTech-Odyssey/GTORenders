@@ -10,6 +10,8 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.VertexFormat;
 
 @OnlyIn(Dist.CLIENT)
 public final class RenderProTypes {
@@ -39,6 +41,14 @@ public final class RenderProTypes {
         return RenderType.eyes(WHITE_TEXTURE);
     }
 
+    public static RenderType bodyGlows() {
+        return Types.BODY_GLOWS;
+    }
+
+    public static RenderType bodyCores() {
+        return Types.BODY_CORES;
+    }
+
     public static void ensureTextures() {
         if (texturesReady) return;
         texturesReady = true;
@@ -65,5 +75,21 @@ public final class RenderProTypes {
         textures.register(GLOW_TEXTURE, new DynamicTexture(glow));
         textures.register(WHITE_TEXTURE, new DynamicTexture(white));
         textures.register(MOTE_TEXTURE, new DynamicTexture(mote));
+    }
+
+    private static final class Types extends RenderType {
+
+        private static final RenderType BODY_GLOWS = depthGlow("gtorenders_body_glows", GLOW_TEXTURE);
+        private static final RenderType BODY_CORES = depthGlow("gtorenders_body_cores", WHITE_TEXTURE);
+
+        private Types() {
+            super(null, null, null, 0, false, false, null, null);
+        }
+
+        private static RenderType depthGlow(String name, ResourceLocation texture) {
+            return create(name, DefaultVertexFormat.NEW_ENTITY, VertexFormat.Mode.QUADS, 256, false, true,
+                    CompositeState.builder().setShaderState(RENDERTYPE_EYES_SHADER).setTextureState(new TextureStateShard(texture, false, false))
+                            .setTransparencyState(ADDITIVE_TRANSPARENCY).setWriteMaskState(COLOR_DEPTH_WRITE).createCompositeState(false));
+        }
     }
 }

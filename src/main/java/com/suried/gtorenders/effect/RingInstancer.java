@@ -3,16 +3,13 @@ package com.suried.gtorenders.effect;
 import com.suried.gtorenders.GTORenders;
 
 import net.minecraft.client.Camera;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferUploader;
-import com.mojang.blaze3d.vertex.VertexFormat;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
@@ -31,13 +28,10 @@ final class RingInstancer {
 
     static final int RIBBON_SEGMENTS = 192;
     private static final int RECORD_BYTES = 112;
-    private static final int VERTEX_BYTES = 36;
     private static final int VOXEL_VERTICES = 12;
     private static final int QUAD_VERTICES = 4;
     private static final int PALETTE_ROWS = 64;
     private static final int MAX_GROUPS = 16;
-    private static final int FULL_BRIGHT = 240;
-    private static final int NO_OVERLAY_V = 10;
     private static final ParticleRing[] GROUP_RING = new ParticleRing[MAX_GROUPS];
     private static final int[] GROUP_FIRST = new int[MAX_GROUPS];
     private static final int[] GROUP_SIZE = new int[MAX_GROUPS];
@@ -56,61 +50,10 @@ final class RingInstancer {
     private static int tableBuffer = -1;
     private static int paletteTexture = -1;
     private static int simulateVao = -1;
-    private static final Output VOXELS = new Output();
-    private static final Output GLOWS = new Output();
+    private static final QuadOutput VOXELS = new QuadOutput();
+    private static final QuadOutput GLOWS = new QuadOutput();
 
     private RingInstancer() {}
-
-    private static final class Output {
-
-        private int buffer = -1;
-        private int capacity;
-        private int vertices;
-        private int vao = -1;
-        private int program = -1;
-
-        private void reserve(int count) {
-            if (buffer == -1) buffer = GlStateManager._glGenBuffers();
-            if (count <= capacity) return;
-            capacity = Math.max(count, capacity * 2);
-            GlStateManager._glBindBuffer(GL15.GL_ARRAY_BUFFER, buffer);
-            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, (long) capacity * VERTEX_BYTES, GL15.GL_DYNAMIC_COPY);
-        }
-
-        private void bindFor(ShaderInstance shader) {
-            int id = shader.getId();
-            if (vao == -1 || program != id) {
-                if (vao != -1) GlStateManager._glDeleteVertexArrays(vao);
-                program = id;
-                vao = GlStateManager._glGenVertexArrays();
-                GlStateManager._glBindVertexArray(vao);
-                GlStateManager._glBindBuffer(GL15.GL_ARRAY_BUFFER, buffer);
-                pointer(id, "Position", 3, 0);
-                pointer(id, "Color", 4, 12);
-                pointer(id, "UV0", 2, 28);
-            } else {
-                GlStateManager._glBindVertexArray(vao);
-            }
-            int overlay = attribute(id, "UV1");
-            if (overlay >= 0) GL30.glVertexAttribI2i(overlay, 0, NO_OVERLAY_V);
-            int light = attribute(id, "UV2");
-            if (light >= 0) GL30.glVertexAttribI2i(light, FULL_BRIGHT, FULL_BRIGHT);
-            int normal = attribute(id, "Normal");
-            if (normal >= 0) GL20.glVertexAttrib3f(normal, 0, 1, 0);
-        }
-
-        private static int attribute(int program, String name) {
-            int location = GL20.glGetAttribLocation(program, name);
-            return location >= 0 ? location : GL20.glGetAttribLocation(program, "iris_" + name);
-        }
-
-        private static void pointer(int program, String name, int size, int offset) {
-            int location = attribute(program, name);
-            if (location < 0) return;
-            GL20.glEnableVertexAttribArray(location);
-            GL20.glVertexAttribPointer(location, size, GL11.GL_FLOAT, false, VERTEX_BYTES, offset);
-        }
-    }
 
     static boolean available() {
         if (state < 0) {
@@ -283,9 +226,9 @@ final class RingInstancer {
         GlStateManager._bindTexture(paletteTexture);
     }
 
-    private static int capture(Output output, int offsetVertices, int vertices, int instances) {
+    private static int capture(QuadOutput output, int offsetVertices, int vertices, int instances) {
         int count = vertices * instances;
-        GL30.glBindBufferRange(GL30.GL_TRANSFORM_FEEDBACK_BUFFER, 0, output.buffer, (long) offsetVertices * VERTEX_BYTES, (long) count * VERTEX_BYTES);
+        GL30.glBindBufferRange(GL30.GL_TRANSFORM_FEEDBACK_BUFFER, 0, output.buffer, (long) offsetVertices * QuadOutput.VERTEX_BYTES, (long) count * QuadOutput.VERTEX_BYTES);
         GL30.glBeginTransformFeedback(GL11.GL_POINTS);
         GL31.glDrawArraysInstanced(GL11.GL_POINTS, 0, vertices, instances);
         GL30.glEndTransformFeedback();
@@ -345,7 +288,7 @@ final class RingInstancer {
         GLOWS.vertices = glowOffset;
     }
 
-    private static void present(Output output, RenderType type, boolean additive) {
+    private static void present(QuadOutput output, RenderType type, boolean additive) {
         if (output.vertices == 0) return;
         type.setupRenderState();
         var shader = RenderSystem.getShader();
@@ -353,35 +296,12 @@ final class RingInstancer {
             type.clearRenderState();
             return;
         }
-        for (int i = 0; i < 12; i++) shader.setSampler("Sampler" + i, RenderSystem.getShaderTexture(i));
-        if (shader.MODEL_VIEW_MATRIX != null) shader.MODEL_VIEW_MATRIX.set(RenderSystem.getModelViewMatrix());
-        if (shader.PROJECTION_MATRIX != null) shader.PROJECTION_MATRIX.set(RenderSystem.getProjectionMatrix());
-        if (shader.INVERSE_VIEW_ROTATION_MATRIX != null) shader.INVERSE_VIEW_ROTATION_MATRIX.set(RenderSystem.getInverseViewRotationMatrix());
-        if (shader.COLOR_MODULATOR != null) shader.COLOR_MODULATOR.set(RenderSystem.getShaderColor());
-        if (shader.FOG_START != null) shader.FOG_START.set(RenderSystem.getShaderFogStart());
-        if (shader.FOG_END != null) shader.FOG_END.set(RenderSystem.getShaderFogEnd());
-        if (shader.FOG_COLOR != null) shader.FOG_COLOR.set(RenderSystem.getShaderFogColor());
-        if (shader.FOG_SHAPE != null) shader.FOG_SHAPE.set(RenderSystem.getShaderFogShape().getIndex());
-        if (shader.TEXTURE_MATRIX != null) shader.TEXTURE_MATRIX.set(RenderSystem.getTextureMatrix());
-        if (shader.GAME_TIME != null) shader.GAME_TIME.set(RenderSystem.getShaderGameTime());
-        if (shader.SCREEN_SIZE != null) {
-            var window = Minecraft.getInstance().getWindow();
-            shader.SCREEN_SIZE.set((float) window.getWidth(), (float) window.getHeight());
-        }
-        RenderSystem.setupShaderLights(shader);
-        shader.apply();
+        QuadOutput.uniforms(shader);
         if (additive) {
             RenderSystem.enableBlend();
             RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
         }
-        output.bindFor(shader);
-        int indices = output.vertices / 4 * 6;
-        var sequential = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
-        sequential.bind(indices);
-        RenderSystem.drawElements(GL11.GL_TRIANGLES, indices, sequential.type().asGLType);
-        GlStateManager._glBindVertexArray(0);
-        BufferUploader.invalidate();
-        shader.clear();
+        output.draw(shader);
         type.clearRenderState();
     }
 

@@ -6,15 +6,14 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.client.renderer.texture.TextureAtlas;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferUploader;
-import com.mojang.blaze3d.vertex.VertexFormat;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
@@ -39,62 +38,9 @@ final class GpuMotes {
     static final int SHRINK = 0, PULSE_SIZE = 1, CONSTANT = 2;
     static final float CULL = (float) MoteParticles.SPAWN_DISTANCE + 8;
     private static final int RECORD_BYTES = 128;
-    private static final int VERTEX_BYTES = 36;
-    private static final int FULL_BRIGHT = 240;
-    private static final int NO_OVERLAY_V = 10;
     private static final int FRAME_COLUMNS = 64;
     private static final int FRAME_ROWS = 64;
     private static final int PROBES = 64;
-
-    private static final class Output {
-
-        int buffer = -1, capacity, vertices, vao = -1, program = -1;
-
-        void reserve(int count) {
-            if (buffer == -1) buffer = GlStateManager._glGenBuffers();
-            if (count <= capacity) return;
-            capacity = Math.max(count, capacity * 2);
-            GlStateManager._glBindBuffer(GL15.GL_ARRAY_BUFFER, buffer);
-            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, (long) capacity * VERTEX_BYTES, GL15.GL_DYNAMIC_COPY);
-        }
-
-        void bindFor(ShaderInstance shader) {
-            int id = shader.getId();
-            if (vao == -1 || program != id) {
-                if (vao != -1) GlStateManager._glDeleteVertexArrays(vao);
-                program = id;
-                vao = GlStateManager._glGenVertexArrays();
-                GlStateManager._glBindVertexArray(vao);
-                GlStateManager._glBindBuffer(GL15.GL_ARRAY_BUFFER, buffer);
-                pointer(id, "Position", 3, 0);
-                pointer(id, "Color", 4, 12);
-                pointer(id, "UV0", 2, 28);
-            } else {
-                GlStateManager._glBindVertexArray(vao);
-            }
-            constant(id, "UV1", 0, NO_OVERLAY_V);
-            constant(id, "UV2", FULL_BRIGHT, FULL_BRIGHT);
-            int normal = attribute(id, "Normal");
-            if (normal >= 0) GL20.glVertexAttrib3f(normal, 0, 1, 0);
-        }
-
-        private static void constant(int program, String name, int a, int b) {
-            int location = attribute(program, name);
-            if (location >= 0) GL30.glVertexAttribI2i(location, a, b);
-        }
-
-        private static int attribute(int program, String name) {
-            int location = GL20.glGetAttribLocation(program, name);
-            return location >= 0 ? location : GL20.glGetAttribLocation(program, "iris_" + name);
-        }
-
-        private static void pointer(int program, String name, int size, int offset) {
-            int location = attribute(program, name);
-            if (location < 0) return;
-            GL20.glEnableVertexAttribArray(location);
-            GL20.glVertexAttribPointer(location, size, GL11.GL_FLOAT, false, VERTEX_BYTES, offset);
-        }
-    }
 
     static final class Pool {
 
@@ -106,8 +52,8 @@ final class GpuMotes {
         int cursor, highWater, dirtyMin = Integer.MAX_VALUE, dirtyMax = -1, count;
         double maxEnd;
         int buffer = -1;
-        final Output out = new Output();
-        final Output coreOut = new Output();
+        final QuadOutput out = new QuadOutput();
+        final QuadOutput coreOut = new QuadOutput();
 
         Pool(int capacity, boolean atlas, boolean throughWalls, boolean stream) {
             this.capacity = capacity;
@@ -372,10 +318,10 @@ final class GpuMotes {
         return pool.highWater > 0;
     }
 
-    private static void capture(Output output, int instances) {
+    private static void capture(QuadOutput output, int instances) {
         int vertices = instances * 4;
         output.reserve(vertices);
-        GL30.glBindBufferRange(GL30.GL_TRANSFORM_FEEDBACK_BUFFER, 0, output.buffer, 0, (long) vertices * VERTEX_BYTES);
+        GL30.glBindBufferRange(GL30.GL_TRANSFORM_FEEDBACK_BUFFER, 0, output.buffer, 0, (long) vertices * QuadOutput.VERTEX_BYTES);
         GL30.glBeginTransformFeedback(GL11.GL_POINTS);
         GL31.glDrawArraysInstanced(GL11.GL_POINTS, 0, 4, instances);
         GL30.glEndTransformFeedback();
@@ -419,6 +365,7 @@ final class GpuMotes {
         GL20.glUniform1i(program.uniform("SpriteFrames"), 0);
         GlStateManager._activeTexture(GL13.GL_TEXTURE0);
         GlStateManager._bindTexture(frameTexture);
+        boolean shaderPack = ShaderPacks.inUse();
         int corePass = program.uniform("CorePass");
         int premultiply = program.uniform("Premultiply");
         GL11.glEnable(GL30.GL_RASTERIZER_DISCARD);
@@ -431,7 +378,7 @@ final class GpuMotes {
             int instances = pool.stream ? pool.count : pool.highWater;
             drawn += instances;
             pointPool(pool);
-            GL20.glUniform1i(premultiply, pool.atlas ? 0 : 1);
+            GL20.glUniform1i(premultiply, pool.atlas || shaderPack ? 0 : 1);
             GL20.glUniform1i(corePass, 0);
             capture(pool.out, instances);
             if (!pool.atlas) {
@@ -448,7 +395,10 @@ final class GpuMotes {
         for (var pool : POOLS) {
             if (pool.out.vertices == 0) continue;
             if (pool.atlas) {
-                presentAtlas(pool.out, pool.throughWalls);
+                presentParticles(pool.out, TextureAtlas.LOCATION_PARTICLES, pool.throughWalls);
+            } else if (shaderPack) {
+                presentParticles(pool.out, RenderProTypes.GLOW_TEXTURE, pool.throughWalls);
+                presentParticles(pool.coreOut, RenderProTypes.WHITE_TEXTURE, pool.throughWalls);
             } else {
                 presentType(pool.out, RenderProTypes.motes(), pool.throughWalls);
                 presentType(pool.coreOut, RenderProTypes.cores(), pool.throughWalls);
@@ -456,55 +406,25 @@ final class GpuMotes {
         }
     }
 
-    private static void uniforms(ShaderInstance shader) {
-        for (int i = 0; i < 12; i++) shader.setSampler("Sampler" + i, RenderSystem.getShaderTexture(i));
-        if (shader.MODEL_VIEW_MATRIX != null) shader.MODEL_VIEW_MATRIX.set(RenderSystem.getModelViewMatrix());
-        if (shader.PROJECTION_MATRIX != null) shader.PROJECTION_MATRIX.set(RenderSystem.getProjectionMatrix());
-        if (shader.INVERSE_VIEW_ROTATION_MATRIX != null) shader.INVERSE_VIEW_ROTATION_MATRIX.set(RenderSystem.getInverseViewRotationMatrix());
-        if (shader.COLOR_MODULATOR != null) shader.COLOR_MODULATOR.set(RenderSystem.getShaderColor());
-        if (shader.FOG_START != null) shader.FOG_START.set(RenderSystem.getShaderFogStart());
-        if (shader.FOG_END != null) shader.FOG_END.set(RenderSystem.getShaderFogEnd());
-        if (shader.FOG_COLOR != null) shader.FOG_COLOR.set(RenderSystem.getShaderFogColor());
-        if (shader.FOG_SHAPE != null) shader.FOG_SHAPE.set(RenderSystem.getShaderFogShape().getIndex());
-        if (shader.TEXTURE_MATRIX != null) shader.TEXTURE_MATRIX.set(RenderSystem.getTextureMatrix());
-        if (shader.GAME_TIME != null) shader.GAME_TIME.set(RenderSystem.getShaderGameTime());
-        if (shader.SCREEN_SIZE != null) {
-            var window = Minecraft.getInstance().getWindow();
-            shader.SCREEN_SIZE.set((float) window.getWidth(), (float) window.getHeight());
-        }
-        RenderSystem.setupShaderLights(shader);
-        shader.apply();
-    }
-
-    private static void draw(Output output, ShaderInstance shader) {
-        output.bindFor(shader);
-        int indices = output.vertices / 4 * 6;
-        var sequential = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
-        sequential.bind(indices);
-        RenderSystem.drawElements(GL11.GL_TRIANGLES, indices, sequential.type().asGLType);
-        GlStateManager._glBindVertexArray(0);
-        BufferUploader.invalidate();
-        shader.clear();
-    }
-
-    private static void presentType(Output output, RenderType type, boolean throughWalls) {
+    private static void presentType(QuadOutput output, RenderType type, boolean throughWalls) {
         if (output.vertices == 0) return;
         type.setupRenderState();
         var shader = RenderSystem.getShader();
         if (shader != null) {
             if (throughWalls) RenderSystem.disableDepthTest();
-            uniforms(shader);
-            draw(output, shader);
+            QuadOutput.uniforms(shader);
+            output.draw(shader);
             if (throughWalls) RenderSystem.enableDepthTest();
         }
         type.clearRenderState();
     }
 
-    private static void presentAtlas(Output output, boolean throughWalls) {
+    private static void presentParticles(QuadOutput output, ResourceLocation texture, boolean throughWalls) {
+        if (output.vertices == 0) return;
         var mc = Minecraft.getInstance();
         mc.gameRenderer.lightTexture().turnOnLightLayer();
         RenderSystem.setShader(GameRenderer::getParticleShader);
-        RenderSystem.setShaderTexture(0, TextureAtlas.LOCATION_PARTICLES);
+        RenderSystem.setShaderTexture(0, texture);
         RenderSystem.enableBlend();
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
         RenderSystem.depthMask(false);
@@ -514,8 +434,8 @@ final class GpuMotes {
         RenderSystem.depthFunc(GL11.GL_LEQUAL);
         var shader = RenderSystem.getShader();
         if (shader != null) {
-            uniforms(shader);
-            draw(output, shader);
+            QuadOutput.uniforms(shader);
+            output.draw(shader);
         }
         if (throughWalls) RenderSystem.enableDepthTest();
         RenderSystem.enableCull();

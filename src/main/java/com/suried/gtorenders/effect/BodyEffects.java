@@ -19,7 +19,6 @@ import net.minecraftforge.fml.common.Mod;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexBuffer;
 import org.joml.Matrix4f;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
@@ -28,8 +27,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 /**
- * Effects worn on player models: registered effects place {@link PixelSheet}s on body parts from a layer the library adds to every player renderer.
- * Sheets keep the part's real pose and are drawn after particles, once every entity batch is flushed, so depth decides what covers what.
+ * Effects worn on player models, placed on body parts from a layer the library adds to every player renderer. Sheets are drawn after particles from
+ * cached geometry so depth decides what covers what; with a shader pack they go into the entity buffers like vanilla glow layers instead.
  */
 @OnlyIn(Dist.CLIENT)
 @Mod.EventBusSubscriber(modid = GTORenders.MOD_ID, value = Dist.CLIENT)
@@ -40,6 +39,7 @@ public final class BodyEffects {
     private static final ArrayList<Matrix4f> POSES = new ArrayList<>();
     private static float[] tints = new float[48];
     private static final Vector3f SCRATCH = new Vector3f();
+    private static MultiBufferSource pending;
     private static int count;
     private static boolean inLevel;
 
@@ -65,6 +65,11 @@ public final class BodyEffects {
 
     public static void draw(PixelSheet sheet, PoseStack poseStack, float red, float green, float blue) {
         if (!inLevel) return;
+        if (pending != null && ShaderPacks.inUse()) {
+            sheet.emit(pending.getBuffer(RenderProTypes.bodyGlows()), poseStack.last(), false, red, green, blue);
+            sheet.emit(pending.getBuffer(RenderProTypes.bodyCores()), poseStack.last(), true, red, green, blue);
+            return;
+        }
         if (count == POSES.size()) {
             POSES.add(new Matrix4f());
             SHEETS.add(null);
@@ -102,25 +107,28 @@ public final class BodyEffects {
     private static void flush() {
         if (count == 0) return;
         RenderProTypes.ensureTextures();
-        var projection = RenderSystem.getProjectionMatrix();
-        pass(RenderProTypes.motes(), false, projection);
-        pass(RenderProTypes.cores(), true, projection);
+        pass(RenderProTypes.motes(), false);
+        pass(RenderProTypes.cores(), true);
         for (int i = 0; i < count; i++) SHEETS.set(i, null);
         count = 0;
     }
 
-    private static void pass(RenderType type, boolean core, Matrix4f projection) {
+    private static void pass(RenderType type, boolean core) {
         type.setupRenderState();
         RenderSystem.disableCull();
         var shader = RenderSystem.getShader();
         if (shader != null) {
+            var modelView = RenderSystem.getModelViewStack();
             for (int i = 0; i < count; i++) {
-                var buffer = SHEETS.get(i).buffer(core);
+                modelView.pushPose();
+                modelView.last().pose().set(POSES.get(i));
+                RenderSystem.applyModelViewMatrix();
                 RenderSystem.setShaderColor(tints[i * 3], tints[i * 3 + 1], tints[i * 3 + 2], 1);
-                buffer.bind();
-                buffer.drawWithShader(POSES.get(i), projection, shader);
+                QuadOutput.uniforms(shader);
+                SHEETS.get(i).buffer(core).draw(shader);
+                modelView.popPose();
             }
-            VertexBuffer.unbind();
+            RenderSystem.applyModelViewMatrix();
             RenderSystem.setShaderColor(1, 1, 1, 1);
         }
         RenderSystem.enableCull();
@@ -137,7 +145,10 @@ public final class BodyEffects {
         public void render(PoseStack poseStack, MultiBufferSource buffer, int packedLight, AbstractClientPlayer player, float limbSwing, float limbSwingAmount,
                            float partialTick, float ageInTicks, float netHeadYaw, float headPitch) {
             if (!inLevel) return;
+            RenderProTypes.ensureTextures();
+            pending = buffer;
             for (int i = 0, size = EFFECTS.size(); i < size; i++) EFFECTS.get(i).render(player, getParentModel(), poseStack, partialTick, ageInTicks);
+            pending = null;
         }
     }
 

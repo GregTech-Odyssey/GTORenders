@@ -23,6 +23,8 @@ shader so shader packs keep working.
 `MoteLook` picks how a mote looks: the GTORenders pixel glow with a bright core (`MoteLook.GLOW`), or a mod's own particle sprite from the particle atlas
 (`MoteLook.sprite / animated / spinning` with `MoteSprite.of(spriteSet)`), so mods keep their original look.
 
+Shader packs (Iris/Oculus): custom draws go through `QuadOutput`, which binds attributes by name (including the `iris_` names). With a pack active, GTO pixel-glow motes are drawn through the vanilla particle shader and body effects are written into the entity buffers, so packs such as Complementary and Photon keep them visible and glowing.
+
 Shared pieces: `ShaderPacks.inUse()` (whether an Iris/Oculus shader pack is active, found by reflection; use it to swap custom core shaders, which shader packs do not support, for vanilla render types), `EffectClock` (fade-in / fade-out per owner), `EffectPalette` (shades of one base color), `EffectSource` (register with
 `RenderProFrame.addSource` to submit continuous effects every frame). Motes are culled by distance, paused with the game and cleared when the level
 changes or resources reload.
