@@ -28,6 +28,7 @@ public final class RenderProFrame {
     private static int ringCount;
     private static boolean collecting;
     private static double frameTime;
+    private static long clientTicks;
     private static ClientLevel lastLevel;
 
     private RenderProFrame() {}
@@ -63,7 +64,7 @@ public final class RenderProFrame {
     public static double now() {
         var mc = Minecraft.getInstance();
         if (mc.level == null) return Double.NaN;
-        return mc.level.getGameTime() + mc.getFrameTime();
+        return clientTicks + (double) mc.getFrameTime();
     }
 
     public static double frameTime() {
@@ -131,8 +132,11 @@ public final class RenderProFrame {
 
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) return;
         var mc = Minecraft.getInstance();
+        if (event.phase == TickEvent.Phase.START) {
+            if (mc.level != null && !mc.isPaused()) clientTicks++;
+            return;
+        }
         var level = mc.level;
         if (level != lastLevel) {
             GpuMotes.clear();
